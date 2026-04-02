@@ -5,9 +5,6 @@
 // @description  multi-region stable
 // @author       You
 
-// @updateURL    https://cdn.jsdelivr.net/gh/moy034369-cpu/amazon-ads-aht-tool@main/amazon_ads_aht_v15%20(1).user.js
-// @downloadURL  https://cdn.jsdelivr.net/gh/moy034369-cpu/amazon-ads-aht-tool@main/amazon_ads_aht_v15%20(1).user.js
-
 
 // @match        https://advertising.amazon.com/*
 // @match        https://advertising.amazon.co.uk/*
