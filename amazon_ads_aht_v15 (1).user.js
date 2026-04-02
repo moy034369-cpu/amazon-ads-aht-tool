@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Amazon Ads AHT Calculator v15 NCC规则修正
 // @namespace    http://tampermonkey.net/
-// @version      10.1
+// @version      10.2
 // @description  multi-region stable
 // @author       You
 
