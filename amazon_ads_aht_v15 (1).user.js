@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Amazon Ads AHT Calculator v13多站点
+// @name         Amazon Ads AHT Calculator v15 NCC规则修正
 // @namespace    http://tampermonkey.net/
 // @version      10.1
 // @description  multi-region stable
@@ -614,13 +614,24 @@ log(`  bucket : "${bucket || '❓未识别'}"`);
     const combos   = Object.values(combinationMap);
     const totalYes = combos.reduce((s, c) => s + c.yes, 0);
     const totalNo  = combos.reduce((s, c) => s + c.no,  0);
-    const totalAHT = combos.reduce((s, c) => s + (c.aht ?? 0), 0);
+    // ★ Campaign Creation 按条数×AHT累加，其他 bucket 每个unique组合只计一次AHT
+    const totalAHT = combos.reduce((s, c) => {
+      if (!c.aht) return s;
+      if (normalizeBucket(c.bucket) === 'campaign creation') {
+        return s + (c.yes + c.no) * c.aht;  // 按条数累加
+      }
+      return s + c.aht;  // 每个unique组合计一次
+    }, 0);
     const missing  = combos.filter(c => c.aht == null);
 
     log(`\n── 最终汇总 ──`);
     combos.forEach(c => {
       const tag = c.isAris ? 'ARIS+APB' : 'NON-ARIS+NON-APB';
-      log(`  ${c.bucket} × ${c.adPdt.toUpperCase()} × ${tag} → ${c.yes + c.no}条, AHT=${c.aht ?? '❓'}`);
+      const isCampaign = normalizeBucket(c.bucket) === 'campaign creation';
+      const comboAHT = c.aht
+        ? (isCampaign ? `${c.yes+c.no}条×${c.aht}=${(c.yes+c.no)*c.aht}min` : `固定${c.aht}min`)
+        : '❓';
+      log(`  ${c.bucket} × ${c.adPdt.toUpperCase()} × ${tag} → ${c.yes + c.no}条, AHT=${comboAHT}`);
     });
     log(`  总 AHT = ${totalAHT} min`);
 
@@ -652,7 +663,13 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
     `;
 
     Object.entries(byBucket).sort().forEach(([bucket, rows]) => {
-      const bucketAHT = rows.reduce((s, r) => s + (r.aht ?? 0), 0);
+      const bucketAHT = rows.reduce((s, r) => {
+        if (!r.aht) return s;
+        if (normalizeBucket(r.bucket) === 'campaign creation') {
+          return s + (r.yes + r.no) * r.aht;
+        }
+        return s + r.aht;
+      }, 0);
       html += `
         <div style="margin-top:6px;background:#f8f8f8;border-radius:4px;padding:6px 8px;">
           <div style="font-weight:700;font-size:12px;">📂 ${bucket}
@@ -662,10 +679,16 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
         const pdt    = r.adPdt.toUpperCase();
         const tag    = r.isAris ? '✅ ARIS+APB' : '❌ NON-ARIS+NON-APB';
         const count  = r.yes + r.no;
-        const ahtStr = r.aht != null ? `${r.aht}min` : '❓未找到';
+        const isCampaign = normalizeBucket(r.bucket) === 'campaign creation';
+        const comboAHT = isCampaign ? count * (r.aht ?? 0) : (r.aht ?? 0);
+        const ahtStr = r.aht != null
+          ? (isCampaign
+              ? `${count}条 × ${r.aht}min = <b>${comboAHT}min</b>`
+              : `固定 <b>${r.aht}min</b>`)
+          : '❓未找到';
         html += `
           <div style="margin:3px 0 0 10px;font-size:11px;color:#333;">
-            ${pdt} · ${tag} · <b>${count}条</b> · AHT <b style="color:${r.aht ? '#333':'#c00'}">${ahtStr}</b>
+            ${pdt} · ${tag} · <b>${count}条</b> · AHT ${r.aht ? ahtStr : '<b style="color:#c00">❓未找到</b>'}
             <div style="color:#aaa;font-size:10px;">来自：${r.cards.join('、')}</div>
           </div>`;
       });
