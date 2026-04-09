@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Amazon Ads AHT Calculator v15 NCC规则修正
+// @name         Amazon Ads AHT Calculator v16
 // @namespace    http://tampermonkey.net/
-// @version      10.7
+// @version      10.8
 // @description  multi-region stable
 // @author       You
 
@@ -31,13 +31,17 @@
     // ★ 顺序重要：具体词在前，宽泛词在后
 
     // ───── Budget Rule（必须在 budget 通用词前）─────
-    { keywords: ['budget rule'],                                    bucket: 'Budget Rule' },
+    { keywords: ['budget rule'],                                    bucket: 'Increase Budget' },
 
     // ───── Increase Budget ─────
     { keywords: ['budget recommendation'],                          bucket: 'Increase Budget' },  // 单复数均覆盖
     { keywords: ['out of budget'],                                  bucket: 'Increase Budget' },  // run out / go out / might go out
     { keywords: ['increase budget'],                                bucket: 'Increase Budget' },
     { keywords: ['bids greater than campaign daily budget'],        bucket: 'Increase Budget' },
+
+      // ───── Change Campaign State ─────
+{ keywords: ['campaign status recommendation'], bucket: 'Change Campaign State' },
+{ keywords: ['campaign status recommendations'], bucket: 'Change Campaign State' },
 
     // ───── Optimize Bids ─────
     { keywords: ['rule-based bidding'],                             bucket: 'Optimize Bids' },
@@ -59,6 +63,9 @@
     { keywords: ['0 clicks in the last'],                           bucket: 'Optimize Bids' },
     { keywords: ['no impressions in last 30 days'],                 bucket: 'Optimize Bids' },  // Adgroups in enabled campaigns with no impressions（注意：Optimize Bids）
     { keywords: ['bid recommendation'],                             bucket: 'Optimize Bids' },  // 兜底单复数
+  { keywords: ['amazon business bid boost'],                      bucket: 'Optimize Bids' },  // "Amazon Business bid boost recommendations"
+    { keywords: ['business bid boost'],                             bucket: 'Optimize Bids' },  // 兜底变体
+
 
     // ───── Placement Strategies ─────
     { keywords: ['bid-by-placement'],                               bucket: 'Placement Strategies' },
@@ -80,7 +87,11 @@
     { keywords: ['create campaign'],                                bucket: 'Campaign Creation' },
     { keywords: ['new campaign'],                                   bucket: 'Campaign Creation' },  // 兜底
 
-    // ───── Add New Targets ─────
+            // ───── Add New Targets ─────
+{ keywords: ['keyword status'], bucket: 'Add New Targets' },
+{ keywords: ['audience target status'], bucket: 'Add New Targets' },
+{ keywords: ['product target status'], bucket: 'Add New Targets' },
+
     { keywords: ['add new target'],                                 bucket: 'Add New Targets' },   // 单复数
     { keywords: ['add new targets'],                                bucket: 'Add New Targets' },
     { keywords: ['budget utilization'],                             bucket: 'Add New Targets' },   // "less than 50% budget utilization"
@@ -99,6 +110,7 @@
     { keywords: ['keyword recommendation'],                         bucket: 'Add New Targets' },   // 单复数（Add New Targets 类）
     { keywords: ['target recommendation'],                          bucket: 'Add New Targets' },   // 单复数 兜底
     { keywords: ['product target recommend'],                       bucket: 'Add New Targets' },
+
   ];
   // ═══════════════════════════════════════════════════════════════════════════
   //  AHT 查找表
@@ -111,7 +123,7 @@ const AHT_TABLE = {
   'sd|aris|apb|optimize bids':                  21,
   'sp|aris|apb|add new targets':                20,
   'sp|non-aris|non apb|add new targets':        20,
-
+  'sd|non-aris|non apb|add new targets':        13,
   'sp|aris|non apb|optimize bids':              19,
   'sb|aris|apb|increase budget':                17,
   'sp|aris|apb|optimize bids':                  17,
@@ -121,6 +133,11 @@ const AHT_TABLE = {
   'sd|non-aris|non apb|optimize bids':          15,
 
   'sd|aris|non apb|optimize bids':              14,
+
+    // ───── Change Campaign State ─────
+'sp|non-aris|non apb|change campaign state': 13,
+'sb|non-aris|non apb|change campaign state': 13,
+'sd|non-aris|non apb|change campaign state': 13,
 
   // ✅ 你缺的这一条（已补）
   'sd|aris|apb|increase budget':                13,
@@ -134,7 +151,6 @@ const AHT_TABLE = {
 
   'sd|non-aris|non apb|campaign creation':      11,
   'sp|aris|apb|increase budget':                11,
-  'sp|aris|apb|budget rule':                    10,
 
   'sp|non-aris|non apb|placement strategies':   10,
   'sb|non-aris|non apb|increase budget':         9,
@@ -150,6 +166,7 @@ const AHT_TABLE = {
   'sp|aris|apb|placement strategies':            6,
 
   'sb|aris|apb|optimize bids':                   5,
+
 };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -196,6 +213,7 @@ const AHT_TABLE = {
   const panel = document.createElement('div');
   panel.style.cssText = `
     position:fixed;top:8px;right:8px;z-index:2147483647;
+    cursor:move;
     background:#fff;border:1px solid #d5d9d9;border-radius:8px;
     padding:12px 14px;font-size:12px;font-family:Arial,sans-serif;
     box-shadow:0 4px 16px rgba(0,0,0,.25);width:320px;
@@ -718,5 +736,22 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
 }
 
   btn.addEventListener('click', runScan);
+
+  // ── 拖拽移动浮窗 ──────────────────────────────────────────────────────────
+  let dragging = false, ox = 0, oy = 0;
+  panel.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'BUTTON') return;
+    dragging = true;
+    ox = e.clientX - panel.getBoundingClientRect().left;
+    oy = e.clientY - panel.getBoundingClientRect().top;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    panel.style.left  = (e.clientX - ox) + 'px';
+    panel.style.top   = (e.clientY - oy) + 'px';
+    panel.style.right = 'auto';
+  });
+  document.addEventListener('mouseup', () => { dragging = false; });
 
 })();
