@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Amazon Ads AHT Calculator v16
+// @name         Amazon Ads AHT Calculator v17
 // @namespace    http://tampermonkey.net/
-// @version      10.8
-// @description  multi-region stable
+// @version      10.9
+// @description  multi-region stable + foldable
 // @author       You
 
 
@@ -24,17 +24,17 @@
 (function () {
   'use strict';
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   //  Title → Rec Bucket
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   const TITLE_MAP = [
-    // ★ 顺序重要：具体词在前，宽泛词在后
+    // ⚠ 顺序重要：具体词在前，宽泛词在后
 
     // ───── Budget Rule（必须在 budget 通用词前）─────
     { keywords: ['budget rule'],                                    bucket: 'Increase Budget' },
 
     // ───── Increase Budget ─────
-    { keywords: ['budget recommendation'],                          bucket: 'Increase Budget' },  // 单复数均覆盖
+    { keywords: ['budget recommendation'],                          bucket: 'Increase Budget' },  // 单复数兼容
     { keywords: ['out of budget'],                                  bucket: 'Increase Budget' },  // run out / go out / might go out
     { keywords: ['increase budget'],                                bucket: 'Increase Budget' },
     { keywords: ['bids greater than campaign daily budget'],        bucket: 'Increase Budget' },
@@ -48,7 +48,7 @@
     { keywords: ['rule based bidding'],                             bucket: 'Optimize Bids' },
     { keywords: ['eligible and recommended for'],                   bucket: 'Optimize Bids' },  // "campaigns eligible and recommended for Rule Based Bidding"
     { keywords: ['audience bid boost'],                             bucket: 'Optimize Bids' },
-    { keywords: ['audience bid'],                                   bucket: 'Optimize Bids' },  // 通用 audience bid 变体
+    { keywords: ['audience bid'],                                   bucket: 'Optimize Bids' },  // 通用 audience bid 兜底
     { keywords: ['audience target bid'],                            bucket: 'Optimize Bids' },
     { keywords: ['keyword bid'],                                    bucket: 'Optimize Bids' },
     { keywords: ['product target bid'],                             bucket: 'Optimize Bids' },
@@ -64,7 +64,7 @@
     { keywords: ['no impressions in last 30 days'],                 bucket: 'Optimize Bids' },  // Adgroups in enabled campaigns with no impressions（注意：Optimize Bids）
     { keywords: ['bid recommendation'],                             bucket: 'Optimize Bids' },  // 兜底单复数
   { keywords: ['amazon business bid boost'],                      bucket: 'Optimize Bids' },  // "Amazon Business bid boost recommendations"
-    { keywords: ['business bid boost'],                             bucket: 'Optimize Bids' },  // 兜底变体
+    { keywords: ['business bid boost'],                             bucket: 'Optimize Bids' },  // 兜底兼容
 
 
     // ───── Placement Strategies ─────
@@ -79,7 +79,7 @@
     { keywords: ['reach relevant audience'],                        bucket: 'Campaign Creation' },  // SD
     { keywords: ['drive brand discovery'],                          bucket: 'Campaign Creation' },  // SB
     { keywords: ['campaign recommendation'],                        bucket: 'Campaign Creation' },  // SD/SB 单复数
-    { keywords: ['brands recommendation'],                          bucket: 'Campaign Creation' },  // SB 无 campaign 变体
+    { keywords: ['brands recommendation'],                          bucket: 'Campaign Creation' },  // SB 无 campaign 兼容
     { keywords: ['build new campaign'],                             bucket: 'Campaign Creation' },  // 单复数
     { keywords: ['build new campaigns for retail'],                 bucket: 'Campaign Creation' },
     { keywords: ['recommend new sponsored products campaign'],      bucket: 'Campaign Creation' },
@@ -112,9 +112,9 @@
     { keywords: ['product target recommend'],                       bucket: 'Add New Targets' },
 
   ];
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   //  AHT 查找表
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
 const AHT_TABLE = {
   'sp|non-aris|non apb|optimize bids':         27,
   'sb|non-aris|non apb|add new targets':        25,
@@ -139,7 +139,7 @@ const AHT_TABLE = {
 'sb|non-aris|non apb|change campaign state': 13,
 'sd|non-aris|non apb|change campaign state': 13,
 
-  // ✅ 你缺的这一条（已补）
+  // ← 你缺过这一条，已补：
   'sd|aris|apb|increase budget':                13,
 
   'sb|non-aris|non apb|campaign creation':      13,
@@ -169,9 +169,9 @@ const AHT_TABLE = {
 
 };
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   //  标准化函数
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   function normalizeAdPdt(text) {
     const t = (text || '').toLowerCase();
     if (t.includes('sponsored product')) return 'sp';
@@ -207,9 +207,9 @@ const AHT_TABLE = {
     return AHT_TABLE[key] ?? null;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   //  UI
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   const panel = document.createElement('div');
   panel.style.cssText = `
     position:fixed;top:8px;right:8px;z-index:2147483647;
@@ -222,30 +222,58 @@ const AHT_TABLE = {
   panel.innerHTML = `
     <div style="font-weight:700;font-size:14px;margin-bottom:6px;
                 display:flex;justify-content:space-between;align-items:center;">
-      AHT 计算器
+      <span id="aht-title-text">AHT 计算器</span>
       <div style="display:flex;gap:6px;">
+        <button id="aht-fold-btn" style="cursor:pointer;background:#888;color:#fff;
+          border:none;border-radius:4px;padding:3px 8px;font-size:11px;" title="折叠/展开">▼</button>
         <button id="aht-debug-btn" style="cursor:pointer;background:#555;color:#fff;
-          border:none;border-radius:4px;padding:3px 8px;font-size:11px;">📋 日志</button>
+          border:none;border-radius:4px;padding:3px 8px;font-size:11px;">🐞 日志</button>
         <button id="aht-btn" style="cursor:pointer;background:#e47911;color:#fff;
           border:none;border-radius:4px;padding:3px 10px;font-size:12px;">▶ 开始</button>
       </div>
     </div>
-    <div id="aht-status" style="color:#888;font-size:11px;min-height:16px;"></div>
-    <div id="aht-result"></div>
-    <div id="aht-debug" style="display:none;margin-top:8px;border-top:1px solid #eee;
-      padding-top:6px;font-size:10px;color:#555;max-height:220px;overflow-y:auto;
-      font-family:monospace;white-space:pre-wrap;word-break:break-all;"></div>
+    <div id="aht-body">
+      <div id="aht-status" style="color:#888;font-size:11px;min-height:16px;"></div>
+      <div id="aht-result"></div>
+      <div id="aht-debug" style="display:none;margin-top:8px;border-top:1px solid #eee;
+        padding-top:6px;font-size:10px;color:#555;max-height:220px;overflow-y:auto;
+        font-family:monospace;white-space:pre-wrap;word-break:break-all;"></div>
+    </div>
   `;
   document.body.appendChild(panel);
 
   const btn      = document.getElementById('aht-btn');
   const debugBtn = document.getElementById('aht-debug-btn');
+  const foldBtn  = document.getElementById('aht-fold-btn');
   const statusEl = document.getElementById('aht-status');
   const resultEl = document.getElementById('aht-result');
   const debugEl  = document.getElementById('aht-debug');
+  const bodyEl   = document.getElementById('aht-body');
 
   debugBtn.addEventListener('click', () => {
     debugEl.style.display = debugEl.style.display === 'none' ? 'block' : 'none';
+  });
+
+  // ── 折叠/展开 ────────────────────────────────────────────────
+  let folded = false;
+  foldBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    folded = !folded;
+    if (folded) {
+      bodyEl.style.display = 'none';
+      foldBtn.textContent = '▶';
+      foldBtn.title = '展开';
+      panel.style.width = 'auto';
+      panel.style.maxHeight = 'none';
+      panel.style.overflowY = 'visible';
+    } else {
+      bodyEl.style.display = '';
+      foldBtn.textContent = '▼';
+      foldBtn.title = '折叠';
+      panel.style.width = '320px';
+      panel.style.maxHeight = '90vh';
+      panel.style.overflowY = 'auto';
+    }
   });
 
   const logs = [];
@@ -255,9 +283,9 @@ const AHT_TABLE = {
     debugEl.textContent = logs.join('\n');
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   //  工具函数
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   const delay = ms => new Promise(r => setTimeout(r, ms));
 
   function waitFor(fn, timeout = 15000, interval = 100) {
@@ -292,14 +320,14 @@ const AHT_TABLE = {
     );
   }
 
-  // ★ Tracking 列索引：找列头文字含 "Tracking" 的那列
+  // ✅ Tracking 列索引：找含有 "Tracking" 的那列
   function findTrackingIdx() {
     const headers = Array.from(document.querySelectorAll('th,[role="columnheader"]'));
     return headers.findIndex(h => /tracking/i.test(h.textContent));
   }
 
-  // ★ 判断单元格是 Yes / No
-  //   Yes 旁边有 ⓘ 图标，textContent 会是 "Yes " 或 "Yes®" 等
+  // ✅ 判断单元格是 Yes / No
+  //   Yes 旁边会有 ® 图标，textContent 会是 "Yes " 或 "Yes®" 等
   //   只要文字以 Yes 开头 或 以 No 开头即可
   function classifyCell(cell) {
     // 只取第一个文字节点，避免图标干扰
@@ -345,7 +373,7 @@ const AHT_TABLE = {
       .filter(el => /view recommendation/i.test(el.textContent.trim()));
   }
 
-  // ★ 从详情页读 title 和 adPdt
+  // ✅ 从详情页读 title 和 adPdt
   //   Ad product 字段页面上写法有两种：
   //   "Ad product: SP"  或  "Ad product; SD"
   //   用正则同时匹配冒号和分号
@@ -440,7 +468,7 @@ function findLinkByTask(task) {
 
   return matched[task.occurrence]?.link || null;
 }
-  // ★ 扫描详情页所有页，统计 Tracking Yes/No
+  // ✅ 扫描详情页所有页，统计 Tracking Yes/No
   async function scanDetail(label) {
     let yes = 0, no = 0, page = 1;
     await goToFirstPage();
@@ -467,7 +495,7 @@ function findLinkByTask(task) {
         else if (kind === 'no') no++;
       });
 
-      statusEl.textContent = `「${label}」第${page}页 ✅${yes} ❌${no}`;
+      statusEl.textContent = `【${label}】第${page}页 ✓${yes} ✗${no}`;
 
       const nxt = getNextBtn();
       if (!nxt) break;
@@ -485,9 +513,9 @@ function findLinkByTask(task) {
     return { yes, no };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
   //  主流程
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────────────────────
 async function runScan() {
   btn.disabled = true;
   btn.textContent = '⏳扫描中…';
@@ -560,7 +588,7 @@ async function runScan() {
       log(`  preview  : "${task.preview}"`);
       log(`  occurrence: ${task.occurrence + 1}`);
 
-      statusEl.textContent = `点击「${label}」…`;
+      statusEl.textContent = `点击【${label}】…`;
       link.click();
 
       // 等待详情页加载
@@ -568,7 +596,7 @@ async function runScan() {
       await delay(400);
 
       // 读取详情信息
-// ❗改为：用列表页卡片信息作为分类来源（解决详情页title重复问题）
+// ★改为：用列表页卡片信息作为分类来源，解决详情页title重复问题★
 const title = task.title;
 const adPdtRaw = task.adPdtRaw;
 const bucket = inferBucket(title);
@@ -582,7 +610,7 @@ log(`  detailTitle(错误来源): "${(detailInfo.title || '').slice(0, 100)}"`);
 
 log(`  adPdtRaw: "${adPdtRaw}"`);
 log(`  adPdt  : "${normalizeAdPdt(adPdtRaw)}"`);
-log(`  bucket : "${bucket || '❓未识别'}"`);
+log(`  bucket : "${bucket || '⚠未识别'}"`);
       if (!bucket) {
         unknownCards.push({
           label,
@@ -599,17 +627,17 @@ log(`  bucket : "${bucket || '❓未识别'}"`);
         if (yes > 0) {
           const c = getOrCreate(bucket, adPdtRaw, true, label);
           c.yes += yes;
-          log(`  → ARIS combo AHT=${c.aht}`);
+          log(`  ✓ ARIS combo AHT=${c.aht}`);
         }
         if (no > 0) {
           const c = getOrCreate(bucket, adPdtRaw, false, label);
           c.no += no;
-          log(`  → NON-ARIS combo AHT=${c.aht}`);
+          log(`  ✓ NON-ARIS combo AHT=${c.aht}`);
         }
       }
 
       // 点击左上角关闭按钮返回列表
-      statusEl.textContent = `「${label}」完成，关闭详情页…`;
+      statusEl.textContent = `【${label}】完成，关闭详情页…`;
 
       const closeBtn = Array.from(document.querySelectorAll('button,[role="button"]'))
         .find(el => {
@@ -629,7 +657,7 @@ log(`  bucket : "${bucket || '❓未识别'}"`);
       await delay(500);
     }
 
-    // ── 渲染结果 ─────────────────────────────
+    // ── 渲染结果 ──────────────────────
     const combos   = Object.values(combinationMap);
     const totalYes = combos.reduce((s, c) => s + c.yes, 0);
     const totalNo  = combos.reduce((s, c) => s + c.no,  0);
@@ -649,7 +677,7 @@ log(`  bucket : "${bucket || '❓未识别'}"`);
       const isCampaign = normalizeBucket(c.bucket) === 'campaign creation';
       const comboAHT = c.aht
         ? (isCampaign ? `${c.yes+c.no}条×${c.aht}=${(c.yes+c.no)*c.aht}min` : `固定${c.aht}min`)
-        : '❓';
+        : '✗';
       log(`  ${c.bucket} × ${c.adPdt.toUpperCase()} × ${tag} → ${c.yes + c.no}条, AHT=${comboAHT}`);
     });
     log(`  总 AHT = ${totalAHT} min`);
@@ -659,7 +687,7 @@ log(`  bucket : "${bucket || '❓未识别'}"`);
       if (!byBucket[c.bucket]) byBucket[c.bucket] = [];
       byBucket[c.bucket].push(c);
     });
-// ⭐ 放在这里（关键位置）
+// ⭐ 放在这里（右键位置）
 const bucketSet = new Set(combos.map(c => c.bucket));
 const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
     let html = `
@@ -667,18 +695,18 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
       <div style="margin:8px 0;padding:8px;background:#fff8f0;
                   border-radius:6px;border:1px solid #f0a030;">
         <div style="font-weight:700;font-size:13px;margin-bottom:4px;">📊 汇总</div>
-       <div>🗂 总卡片数: <b>${taskQueue.length} 个</b></div>
+       <div>📋 总卡片数: <b>${taskQueue.length} 个</b></div>
 <div>📦 Rec Bucket 数量: <b>${bucketSet.size} 个</b></div>
-<div>🛒 Ad Product 数量: <b>${adProductSet.size} 个</b></div>
+<div>🎯 Ad Product 数量: <b>${adProductSet.size} 个</b></div>
 <div>🔢 Unique 组合数: <b>${combos.length} 个</b></div>
 <div>⏱ 预估总 AHT: <b>${totalAHT} 分钟</b>
   <span style="color:#888;font-size:10px;">（每种组合计一次）</span>
 </div>
         ${missing.length > 0
-          ? `<div style="color:#c00;font-size:10px;">⚠️ ${missing.length}个组合未找到AHT，请看📋日志</div>`
+          ? `<div style="color:#c00;font-size:10px;">⚠️ ${missing.length}个组合未找到AHT，请看🐞日志</div>`
           : ''}
       </div>
-      <div style="font-weight:700;font-size:12px;margin:6px 0 2px;">📁 按 Rec Bucket 明细</div>
+      <div style="font-weight:700;font-size:12px;margin:6px 0 2px;">📋 按 Rec Bucket 明细</div>
     `;
 
     Object.entries(byBucket).sort().forEach(([bucket, rows]) => {
@@ -691,7 +719,7 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
       }, 0);
       html += `
         <div style="margin-top:6px;background:#f8f8f8;border-radius:4px;padding:6px 8px;">
-          <div style="font-weight:700;font-size:12px;">📂 ${bucket}
+          <div style="font-weight:700;font-size:12px;">📌 ${bucket}
             <span style="font-weight:normal;color:#888;font-size:11px;"> 小计 ${bucketAHT}min</span>
           </div>`;
       rows.forEach(r => {
@@ -704,10 +732,10 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
           ? (isCampaign
               ? `${count}条 × ${r.aht}min = <b>${comboAHT}min</b>`
               : `固定 <b>${r.aht}min</b>`)
-          : '❓未找到';
+          : '✗未找到';
         html += `
           <div style="margin:3px 0 0 10px;font-size:11px;color:#333;">
-            ${pdt} · ${tag} · <b>${count}条</b> · AHT ${r.aht ? ahtStr : '<b style="color:#c00">❓未找到</b>'}
+            ${pdt} · ${tag} · <b>${count}条</b> · AHT ${r.aht ? ahtStr : '<b style="color:#c00">✗未找到</b>'}
             <div style="color:#aaa;font-size:10px;">来自：${r.cards.join('、')}</div>
           </div>`;
       });
@@ -719,12 +747,12 @@ const adProductSet = new Set(combos.map(c => c.adPdt.toUpperCase()));
         <div style="margin-top:8px;padding:6px 8px;background:#fff0f0;
                     border-radius:4px;font-size:11px;">
           <b>⚠️ 未识别 Bucket（${unknownCards.length}张）</b><br>
-          请点 📋日志 查看 title，告诉我补关键词
+          请点 🐞日志 查看 title，告诉我补关键词
         </div>`;
     }
 
     resultEl.innerHTML = html;
-    statusEl.textContent = '✔ 扫描完成';
+    statusEl.textContent = '✅ 扫描完成';
 
   } catch (e) {
     statusEl.textContent = '❌ ' + e.message;
